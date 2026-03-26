@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Form Dashboard</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 p-8 font-sans text-gray-800">
+
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6 text-center text-gray-900">Live Form Responses</h1>
+
+        <div class="bg-white p-6 rounded-lg shadow-md border border-gray-200">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Preferensi Acara</h2>
+            
+            <div class="grid grid-cols-2 gap-6">
+                <div>
+                    <h3 class="text-lg font-semibold mb-4 text-gray-600">Event Preferences</h3>
+                    <canvas id="eventPreference" width="400" height="200"></canvas>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold mb-4 text-gray-600">Date Availability</h3>
+                    <canvas id="dateAvailability" width="400" height="200"></canvas>
+                </div>
+            </div>
+            <p class="text-sm text-gray-500 mt-4 text-center" id="total-count">
+                Total responses: Fetching data...
+            </p>
+            <p class="text-sm text-gray-500 mt-4 text-center" id="last-updated">
+                Fetching data...
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. CONFIGURATION
+        // ==========================================
+        // Replace this URL with your Google Sheet "Publish to web" CSV link
+        const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTrTEgIak6xlh-uo3Gqpe1E5Hw2nmOEQBRxoWhETaWWLy3CnVn_AwbFcsW_TI6f-RS4Rk7VDhcxhpwq/pub?output=csv';
+        const REFRESH_INTERVAL_MS = 60000; // Refreshes every 60 seconds
+
+        let eventPreferenceInstance = null;
+        let dateAvailabilityInstance = null;
+        // ==========================================
+        // 2. FETCH & PARSE LOGIC
+        // ==========================================
+        async function fetchDataAndDrawChart() {
+            try {
+                const response = await fetch(SHEET_CSV_URL);
+                
+                // If the URL is invalid or blocked, this throws an error and goes to the 'catch' block
+                if (!response.ok) throw new Error('Network response was not ok'); 
+                const csvText = await response.text();
+
+                // Parse the CSV text into a JavaScript array
+                Papa.parse(csvText, {
+                    header: true, // Assumes your sheet has column names in row 1
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        drawChart(results.data);
+                        document.getElementById('total-count').innerText = `Total responses: ${results.data.length}`;
+                        updateTimestamp();
+                    }
+                });
+            } catch (error) {
+                console.warn('Could not fetch real CSV data. Using placeholder data instead.', error);
+                
+                // Placeholder Data: This ensures you see a chart even before you add your real URL
+                const mockData = [
+                    { "Category": "Option A", "Count": 12 },
+                    { "Category": "Option B", "Count": 19 },
+                    { "Category": "Option C", "Count": 7 },
+                    { "Category": "Option D", "Count": 5 }
+                ];
+                drawChart(mockData);
+                document.getElementById('last-updated').innerText = "Displaying placeholder data. Update SHEET_CSV_URL in the code.";
+                document.getElementById('total-count').innerText = "Total responses: 4"; // Update this to reflect the actual total
+            }
+        }
+
+        // ==========================================
+        // 3. CHART RENDERING LOGIC
+        // ==========================================
+        function drawChart(data) {
+            // Extract labels and values. 
+            // NOTE: Change "Category" and "Count" to match the EXACT column headers in your Google Sheet
+            const totalCounts = data.length;
+            // println('Total counts:', totalCounts);
+            var categoryCounts = {};
+            for (var i = 0; i < data.length; i++) {
+                var splitCategories = data[i]['Preferensi Acara Rekreasi'].split(',').map(item => item.trim());
+                if(splitCategories.length > 1) {
+                    console.log('Split categories for row', i, ':', splitCategories);
+                    splitCategories.forEach(category => {
+                        if (categoryCounts[category]) {
+                            categoryCounts[category]++;
+                        } else {
+                            categoryCounts[category] = 1;
+                        }
+                    });
+                }
+            }
+            const labels = Object.keys(categoryCounts);
+            const values = Object.values(categoryCounts);
+            const ctx = document.getElementById('eventPreference').getContext('2d');
+
+            // Destroy the old chart before drawing a new one to prevent glitching on auto-refresh
+            if (eventPreferenceInstance) {
+                eventPreferenceInstance.destroy();
+            }
+            var options = {
+                tooltips: {
+                    enabled: false
+                },
+                plugins: {
+                    datalabels: {
+                        formatter: (value, ctx) => {
+                            let sum = 0;
+                            let dataArr = ctx.chart.data.datasets[0].data;
+                            dataArr.map(data => {
+                                sum += data;
+                            });
+                            let percentage = (value*100 / sum).toFixed(2)+"%";
+                            return percentage;
+                        },
+                        color: '#fff',
+                    }
+                }
+            };
+
+            eventPreferenceInstance = new Chart(ctx, {
+                type: 'pie', // You can change this to 'line', 'pie', 'doughnut', etc.
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: [
+                            'rgba(59, 130, 246, 0.7)', // Tailwind Blue-500
+                            'rgba(16, 185, 129, 0.7)', // Tailwind Green-500
+                            'rgba(234, 179, 8, 0.7)',  // Tailwind Yellow-500
+                            'rgba(239, 68, 68, 0.7)'   // Tailwind Red-500
+                        ],
+                        borderColor: [
+                            'rgba(37, 99, 235, 1)',      // Tailwind Blue-600
+                            'rgba(5, 150, 105, 1)',     // Tailwind Green-600
+                            'rgba(202, 138, 4, 1)',     // Tailwind Yellow-600
+                            'rgba(220, 38, 38, 1)'      // Tailwind Red-600
+                        ],
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }],
+                    options: options
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 } // Ensures whole numbers on the Y-axis
+                        }
+                    }
+                }
+            });
+
+            var dateCounts = {};
+            for (var i = 0; i < data.length; i++) {
+                var splitDate = data[i]['Available tanggal berapa aja?'].split(','); // Assuming 'Timestamp'
+                if(splitDate.length > 1){
+                    splitDate.forEach(date => {
+                        if (dateCounts[date]) {
+                            dateCounts[date]++;
+                        } else {
+                            dateCounts[date] = 1;
+                        }
+                    });
+                }
+            }
+            dateLabels = Object.keys(dateCounts);
+            dateValues = Object.values(dateCounts);
+            const ctx2 = document.getElementById('dateAvailability').getContext('2d');
+            if (dateAvailabilityInstance) {
+                dateAvailabilityInstance.destroy();
+            }
+
+
+            dateAvailabilityInstance = new Chart(ctx2, {
+                type: 'bar', // You can change this to 'line', 'pie', 'doughnut', etc.
+                data: {
+                    labels: dateLabels,
+                    datasets: [{
+                        label: 'Jumlah Responden',
+                        data: dateValues,
+                        backgroundColor: 'rgba(16, 185, 129, 0.7)', // Tailwind Green-500
+                        borderColor: 'rgba(5, 150, 105, 1)',     // Tailwind Green-600
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { precision: 0 } // Ensures whole numbers on the Y-axis
+                        }
+                    }
+                }
+            });
+
+        }
+
+        function updateTimestamp() {
+            const now = new Date();
+            document.getElementById('last-updated').innerText = `Last updated: ${now.toLocaleTimeString()}`;
+        }
+
+        // ==========================================
+        // 4. INITIALIZE AND SET AUTO-REFRESH
+        // ==========================================
+        fetchDataAndDrawChart(); // Run immediately on load
+        setInterval(fetchDataAndDrawChart, REFRESH_INTERVAL_MS); // Run repeatedly
+
+    </script>
+</body>
+</html>
